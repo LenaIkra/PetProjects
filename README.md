@@ -1,7 +1,7 @@
 # PetProjects
  Здесь собраны Pet-проекты, когда-либо выполненные мной.
  
-- [Расчет резульатов АВ-теста](https://github.com/LenaIkra/PetProjects/tree/main/АВ%20тест)
+- [Расчет результатов АВ-теста](https://github.com/LenaIkra/PetProjects/tree/main/АВ-тест)
 
   Анализ эксперимента по внедрению пуш-уведомлений вместо баннера в приложении крупного ритейлера SkyLenta.
 
