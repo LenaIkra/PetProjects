@@ -5,7 +5,7 @@
 
   Анализ эксперимента по внедрению пуш-уведомлений вместо баннера в приложении крупного ритейлера SkyLenta.
 
-##Статистика
+## Статистика
 
 [![GitHub Streak](http://github-readme-streak-stats.herokuapp.com?user=LenaIkra&theme=dark&background=000000)](https://git.io/streak-stats)
 
