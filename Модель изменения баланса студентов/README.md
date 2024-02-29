@@ -81,13 +81,13 @@ ____
 # Решение
 <details>
   <summary> 
-Шаг 1. Поиск первой транзакции каждого студента </summary> 
+Шаг 1. Поиск первой транзакции каждого студента. </summary> 
 Узнаем, когда была первая транзакция для каждого студента. Начиная с этой даты, мы будем собирать его баланс уроков. 
 Создадим CTE `first_payments` с двумя полями: `user_id` и `first_payment_date` (дата первой успешной транзакции).
 </details>
 <details>
   <summary>
-Шаг 2. Сбор всех уникальных дат уроков
+Шаг 2. Сбор всех уникальных дат уроков.
   </summary>
 Соберем таблицу с датами за каждый календарный день 2016 года. Выберем все даты из таблицы `classes`.
 Создадим CTE `all_dates` с полем `dt`, где будут храниться уникальные даты (без времени) уроков.
@@ -95,7 +95,7 @@ ____
 </details>
 <details>
   <summary>
-Шаг 3. Создание таблицы дат жизни студента после его первой транзакции</summary>
+Шаг 3. Создание таблицы дат жизни студента после его первой транзакции.</summary>
 
 Узнаем, за какие даты имеет смысл собирать баланс для каждого студента. Для этого объединим таблицы и создадим CTE all_dates_by_user, где будут храниться все даты жизни студента после того, как произошла его первая транзакция. 
 В таблице должны быть такие поля: user_id, dt. 
@@ -133,7 +133,7 @@ ____
 </details>
 
 <details>
-  <summary> Шаг 8. Создание таблицы баланса каждого студента
+  <summary> Шаг 8. Создание таблицы баланса каждого студента.
   </summary>
 Создадим CTE `balances` ****с вычисленными балансами каждого студента. Для этого объединим таблицы `payments_by_dates_cumsum` ****и `classes_by_dates_dates_cumsum` так, чтобы совпадали даты и `user_id`.
 
@@ -147,14 +147,118 @@ ____
 
 Для этого просуммируем поля `transaction_balance_change`, `transaction_balance_change_cs`, `classes`, `classes_cs`, `balance` из CTE `balances` с группировкой и сортировкой по `dt`.
 </details>
+<details>
+  <summary> Код SQL-запросов (также в файле "Запросы.sql"). </summary>
+
+	with first_payments as (
+		select   user_id
+				, min(date(transaction_datetime)) as first_payment_date
+		from skyeng_db.payments
+		where status_name = 'success'
+		group by user_id
+		order by user_id
+		)
+	-----
+	, all_dates as (
+		select distinct date(class_start_datetime) as dt
+		from skyeng_db.classes
+		where date_trunc('year', class_start_datetime) = '2016-01-01'
+		order by date(class_start_datetime)
+		)
+	-----
+	, payments_by_dates as (
+		select   user_id
+				, date(transaction_datetime) as payment_date
+				, sum(classes) as transaction_balance_change
+		from skyeng_db.payments
+		where status_name = 'success'
+		group by user_id, date(transaction_datetime)
+		order by user_id, date(transaction_datetime)
+		)
+	-----
+	, all_dates_by_user as (
+		select *
+		from all_dates ad
+		right join first_payments fp
+			on ad.dt >= fp.first_payment_date
+			)
+	-----
+	, classes_by_dates as (
+		select   user_id
+				, date_trunc('day', class_start_datetime) as class_date
+				, count(class_status)*(-1) as classes
+		from skyeng_db.classes
+		where class_status in ('success', 'failed_by_student')
+		and date_trunc('year', class_start_datetime) = '2016-01-01'
+		group by 1, 2
+		order by 1, 2
+		)
+	-----
+	, payments_by_dates_cumsum as (
+		select   adbu.user_id
+				, dt
+				, case when transaction_balance_change is null then 0
+						else transaction_balance_change end
+				, case when sum(transaction_balance_change) over (partition by adbu.user_id order by dt) is null then 0
+						else sum(transaction_balance_change) over (partition by adbu.user_id order by dt) end as transaction_balance_change_cs
+		from payments_by_dates pbd
+		right join all_dates_by_user adbu
+			on pbd.user_id = adbu.user_id
+			and pbd.payment_date = adbu.dt
+		)
+	-----
+	, classes_by_dates_dates_cumsum as (
+		select    adbu.user_id
+				, dt
+				, case when classes is null then 0
+						else classes end
+				, case when sum(classes) over (partition by adbu.user_id order by dt) is null then 0
+						else sum(classes) over (partition by adbu.user_id order by dt) end as classes_cs
+		from classes_by_dates cbd
+		right join all_dates_by_user adbu
+			on cbd.user_id = adbu.user_id
+			and cbd.class_date = adbu.dt
+		)
+	-----
+	, balances as (
+		select    pbdc.user_id
+				, pbdc.dt
+				, transaction_balance_change
+				, transaction_balance_change_cs
+				, case when classes is null then 0 else classes end
+				, case when classes_cs is null then 0 else classes_cs end
+				, case when classes_cs + transaction_balance_change_cs is null
+					then 0 else classes_cs + transaction_balance_change_cs end as balance
+		from payments_by_dates_cumsum pbdc
+		full join classes_by_dates_dates_cumsum cbddc
+		on pbdc.user_id = cbddc.user_id
+		and pbdc.dt = cbddc.dt
+		)
+	-----
+	select *
+	from balances
+	order by user_id, dt
+	limit 1000
+	-----
+	-- select     dt
+	--          , sum(transaction_balance_change) as transaction_balance_change
+	--          , sum(transaction_balance_change_cs) transaction_balance_change_cs
+	--          , sum(classes) classes
+	--          , sum(classes_cs) classes_cs
+	--          , sum(balance) balance
+	-- from balances
+	-- group by dt
+	-- order by dt
+</details>
 
 ___
 # Выводы
+Результирующие таблицы выгружены в файл __"Результат запросов, визуализация"__.
 
 1. При просмотре таблицы `payments` возникает ряд вопросов для дата-инженеров и владельцев таблицы :
 - Не везде проставлен id_transaction в таблице payments (для корпоративных клиентов), почему?
 - Что значит отрицательный баланс в таблице payments?
 
-2.По визуализации можно косвенно предположить рост числа студентов, так как растет количество транзакций и общий баланс уроков.
+2. По визуализации можно косвенно предположить рост числа студентов, так как растет количество транзакций и общий баланс уроков.
 
 ![alt text](image.png)
